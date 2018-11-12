@@ -1,0 +1,6 @@
+compiled/
+msvc/Release
+msvc/x64
+msvc/Debug
+msvc/.vs
+doc/dokumentace.pdf
