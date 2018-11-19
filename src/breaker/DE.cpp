@@ -8,6 +8,7 @@
 #include <immintrin.h>
 #include <iostream>
 #include <tbb/tbb.h>
+#include <tbb/mutex.h>
 
 using namespace std;
 
@@ -90,38 +91,23 @@ void DE::init(float mini = 0.0, float maxi = 255.0, int testFnctn = 0) {
 	setPopulation();
 }
 
-//mutace (vysledkem je nastavni sumoveho vektoru jednoho jedince)
-//parametr udava mutacni funkci (viz makra v DE.H)
 void DE::evolve() {
 	int gen = 0;
-	for (gen = 0; gen < generations && stagnation < maxStagnation; gen++) {
+	for (gen = 0; gen < generations; gen++) {
 		
-		 for(int x = 0; x < popSize; x++) {
+		tbb::parallel_for(0, popSize, [&](int x) {
+			activeParent = x;
+			int i = selectNoiseIndex() - 1;
 
-			activeParent = x;//aktivni rodic se vybira v ramci populace postupne jeden po druhem.
-			int i = dimension;
-			//if (crossbreeding == stExp)
-				i = selectNoiseIndex() - 1;
+			best1(i);
+			expCross(i);
 
-			//switch (mutation) {
-				best1(i);
-				expCross(i);
-			
-	//		tbb::parallel_for(0,dimension, ix++) {
-	//			newPop[x + ix * popSize] = trial[ix];   //noveho jedince zaznamename do nove populace
-	//		}
-		
-				for (int ix = 0; i < dimension; i++) {
-			 newPop[x + ix * popSize] = trial[ix];
-		 });
-	}
-
-
-		population = newPop;  //aktualizujeme populaci
-
-
-
-		
+			for (int ix = 0; ix <= dimension; ix++) {
+				newPop[x + ix * popSize] = trial[ix];
+			}
+		});
+				
+		population = newPop; 
 	}
 
 	if (stagnation == maxStagnation) {
@@ -170,6 +156,7 @@ void DE::selectParents(int *r1, int *r2, int *r3, int *r4, int *r5) {
 	}
 }
 
+
 void DE::best1(int x) {
 	//vybereme nahodne dva jedince z aktualni populace
 	  
@@ -210,7 +197,8 @@ void DE::best1(int x) {
 		
 	__m256 x1 = _mm256_set_ps(x1_1, x1_2, x1_3, x1_4, x1_5, x1_6, x1_7, x1_8);
 	__m256 x2 = _mm256_set_ps(x2_1, x2_2, x2_3, x2_4, x2_5, x2_6, x2_7, x2_8);
-	__m256 factor_m = _mm256_set_ps(factor, factor, factor, factor, factor, factor, factor, factor);
+
+	__m256 factor_m = _mm256_set1_ps(factor);  //_mm256_set_ps(factor, factor, factor, factor, factor, factor, factor, factor);
 
 	__m256 result = _mm256_sub_ps(x1, x2);
 	
@@ -220,9 +208,9 @@ void DE::best1(int x) {
 
 	__m256 add_m = _mm256_add_ps(mul_m, best_m);
 
-
-	memcpy(&noise[i], (float*)&add_m, 8*sizeof(float));
-
+	noiseMutex.lock();
+	memcpy(&noise[i], (float*)&add_m, 8 * sizeof(float));
+	noiseMutex.unlock();
 	for (; i < x; i++) {
 
 		x1f = population[r1 + (i)*popSize];
@@ -251,16 +239,19 @@ void DE::expCross(int noiseIndex) {
 
 	//nahodna hodnota=noiseIndex
 
+	trialMutex.lock();
 	for (int i = 1; i <= dimension; i++) {
+
+		
 
 		if (i <= noiseIndex) {
 			//osetreni abychom nevylezli mimo meze
-			if (noise[i - 1]<minimum or noise[i - 1]>maximum) trial[i] = population[activeParent + i * popSize];
-			else trial[i] = noise[i - 1];
+			if (noise[i - 1]<minimum or noise[i - 1]>maximum) { trial[i] = population[activeParent + i * popSize]; }
+			else { trial[i] = noise[i - 1]; }
 		}
-		else
+		else {
 			trial[i] = population[activeParent + i * popSize];
-
+		}
 	}
 
 	
@@ -268,19 +259,21 @@ void DE::expCross(int noiseIndex) {
 	float parentEnergy = costFunction(population, activeParent, getPopSize());
 
 	
-	if (trialEnergy <= parentEnergy)
+	if (trialEnergy <= parentEnergy) {
 		trial[0] = trialEnergy;
+	}
 	else {
 		trial[0] = parentEnergy;
 		for (int i = 1; i <= dimension; i++) {
 			trial[i] = population[activeParent + i * popSize];
 		}
 	}
-
+	trialMutex.unlock();
 
 	if (bestCV > trial[0]) {
 		stagnation = 0;
 		bestCV = trial[0];
+
 
 		for (int i = 0; i <= dimension; i++) {
 			best[i] = trial[i];
@@ -311,10 +304,8 @@ float DE::costFunction(float * testPopulation, int index, int popSiz) {
 		value[i] = (byte)testPopulation[i + index*sizeof(TPassword)];
 	}
 
-
 	SJ_context context;
 	TBlock decrypted;
-
 
 	makeKey(&context, value, sizeof(TPassword));
 	decrypt_block(&context, decrypted, encrypted);
@@ -322,7 +313,7 @@ float DE::costFunction(float * testPopulation, int index, int popSiz) {
 
 	for (size_t i = 0; i < sizeof(TPassword); i++)
 	{
-		for (size_t j = 0; j < 10; j++)
+		for (size_t j = 0; j < 8; j++)
 		{
 
 			if (((decrypted[i] >> j) & 1) != ((reference[i] >> j) & 1)) {

@@ -3,7 +3,8 @@
 
 #include <random>
 #include "../skipjack.h"
-using namespace std;
+#include <tbb/tbb.h>
+#include <tbb/mutex.h>
 
 class DE
 {
@@ -27,7 +28,7 @@ public:
 
 	/*mutacni algoritmy*/
 	void best1(int i);
-	void rand1(int i);
+	
 	void randToBest1(int i);
 	void best2(int i);
 	void rand2(int i);
@@ -72,4 +73,7 @@ private:
 	const byte* reference;
 
 	std::mt19937 generator;   
+
+	tbb::mutex noiseMutex;
+	tbb::mutex trialMutex;
 };
