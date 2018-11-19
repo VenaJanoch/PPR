@@ -24,10 +24,10 @@ public:
 	/*zakladni funkce diferencialniho evolucniho algoritmu*/
 	void evolve();  //evolucni cyklus
 	void binCross();            //binarni krizeni
-	void expCross(int i);       //exponencialni krizeni
+	void expCross(int i, float* trial, float* noise );       //exponencialni krizeni
 
 	/*mutacni algoritmy*/
-	void best1(int i);
+	void best1(int i, float* noise);
 	
 	void randToBest1(int i);
 	void best2(int i);
@@ -40,12 +40,15 @@ public:
 	/*cost function*/
 	float costFunction(float * testPopulation, int index, int populationSize);
 
+	void avx_calculation(float* noise, int x, int r1, int r2);
+	void gpu_calculation(float* noise,  int x, int r1, int r2);
+
 
 protected:
 	float * population;//dynamicke pole populace (matice NP x D, kde jedinec = sloupec)
 	float * newPop;    //nove vznikajici populace
-	float * noise;     //sumovy vektor vznikly mutaci populace
-	float * trial;     //zkusebni vektor vznikly krizenim sumoveho vektoru a 4. rodice
+	//float * noise;     //sumovy vektor vznikly mutaci populace
+	//float * trial;     //zkusebni vektor vznikly krizenim sumoveho vektoru a 4. rodice
 	float * best;      //nejlepsi dosavadni reseni problematiky
 
 	void selectParents(int *r1, int *r2 = 0, int *r3 = 0, int *r4 = 0, int *r5 = 0);//pomocna funkce pro nahodny vyber rodicu
@@ -74,6 +77,5 @@ private:
 
 	std::mt19937 generator;   
 
-	tbb::mutex noiseMutex;
-	tbb::mutex trialMutex;
+	tbb::mutex bestMutex;
 };

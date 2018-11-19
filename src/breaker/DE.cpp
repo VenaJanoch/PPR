@@ -9,8 +9,11 @@
 #include <iostream>
 #include <tbb/tbb.h>
 #include <tbb/mutex.h>
-
+#include <amp.h>  
+using namespace concurrency;
 using namespace std;
+
+const int calculation_definition = 1;
 
 DE::DE(float CR, int NP, float F, int generation, int D, TBlock &encrypted_, const TBlock &reference_ ) :
 	crossover(CR), popSize(NP), factor(F), generations(generation), dimension(D), encrypted(encrypted_), reference(reference_) {
@@ -18,8 +21,8 @@ DE::DE(float CR, int NP, float F, int generation, int D, TBlock &encrypted_, con
 
 	this->population = new float[NP * (D + 1)];//zalozime populaci o velikosti NP*(D+1) - navyseni o 1 dimenzi je kvuli CostValue
 	this->newPop = new float[NP * (D + 1)];    //populace potomku
-	this->noise = new float[D];              //sumovy vektor jedince nebude mit CostValue
-	this->trial = new float[D + 1];            //zkusebni vektor jedince CV ma
+	//this->noise = new float[D];              //sumovy vektor jedince nebude mit CostValue
+	//this->trial = new float[D + 1];            //zkusebni vektor jedince CV ma
 	this->best = new float[D + 1];             //stejne tak i doposud nejlepsi jedinec si uchovava svou nejlepsi hodnotu CV
 
 	//nastavime hodnotu priznaku stagnace. Pokud se hodnota bestCV nezmeni 200<=stagnation<=generations/3, ukoncime evoluci.
@@ -87,7 +90,6 @@ void DE::init(float mini = 0.0, float maxi = 255.0, int testFnctn = 0) {
 	minimum = mini;
 	maximum = maxi;
 	testFunction = testFnctn;
-	
 	setPopulation();
 }
 
@@ -98,13 +100,17 @@ void DE::evolve() {
 		tbb::parallel_for(0, popSize, [&](int x) {
 			activeParent = x;
 			int i = selectNoiseIndex() - 1;
-
-			best1(i);
-			expCross(i);
+			float * trial = new float[dimension + 1];
+			float * noise = new float[dimension];
+			best1(i, noise);
+			expCross(i, trial, noise);
 
 			for (int ix = 0; ix <= dimension; ix++) {
 				newPop[x + ix * popSize] = trial[ix];
 			}
+
+			delete[] trial;
+			delete[] noise;
 		});
 				
 		population = newPop; 
@@ -157,80 +163,152 @@ void DE::selectParents(int *r1, int *r2, int *r3, int *r4, int *r5) {
 }
 
 
-void DE::best1(int x) {
+void DE::best1(int x, float* noise) {
 	//vybereme nahodne dva jedince z aktualni populace
-	  
-	float x1f, x2f;	//hodnoty nahodne vybranych jedincu
-	int r1, r2;     //indexy nahodne vybranych jedincu
+
+		int r1, r2;     //indexy nahodne vybranych jedincu
 
 	selectParents(&r1, &r2);
 
-	int i = 0;
+#if calculation_definition
+	gpu_calculation(noise, x, r1, r2);
+#else  // 0
+	avx_calculation(noise, x, r1, r2);
+#endif
 
-	for (; i < x - 7; i += 8) {
-	
-	float	x1_1 = population[r1 + i * popSize];
-	float 	x2_1 = population[r2 + i * popSize];
-
-	float	x1_2 = population[r1 + (i + 1)*popSize];
-	float 	x2_2 = population[r2 + (i + 1)*popSize];
-
-	float	x1_3 = population[r1 + (i + 2)*popSize];
-	float 	x2_3 = population[r2 + (i + 2)*popSize];
-
-	float	x1_4 = population[r1 + (i + 3)*popSize];
-	float 	x2_4 = population[r2 + (i + 3)*popSize];
-
-	float	x1_5 = population[r1 + (i + 4)*popSize];
-	float 	x2_5 = population[r2 + (i + 4)*popSize];
-
-	float	x1_6 = population[r1 + (i + 5)*popSize];
-	float 	x2_6 = population[r2 + (i + 5)*popSize];
-
-	float	x1_7 = population[r1 + (i + 6)*popSize];
-	float 	x2_7 = population[r2 + (i + 6)*popSize];
-
-	float	x1_8 = population[r1 + (i + 7)*popSize];
-	float 	x2_8 = population[r2 + (i + 7)*popSize];
 
 	
-		
-	__m256 x1 = _mm256_set_ps(x1_1, x1_2, x1_3, x1_4, x1_5, x1_6, x1_7, x1_8);
-	__m256 x2 = _mm256_set_ps(x2_1, x2_2, x2_3, x2_4, x2_5, x2_6, x2_7, x2_8);
-
-	__m256 factor_m = _mm256_set1_ps(factor);  //_mm256_set_ps(factor, factor, factor, factor, factor, factor, factor, factor);
-
-	__m256 result = _mm256_sub_ps(x1, x2);
-	
-	__m256 mul_m = _mm256_mul_ps(result, factor_m);
-
-	__m256 best_m = _mm256_loadu_ps(&best[i]);
-
-	__m256 add_m = _mm256_add_ps(mul_m, best_m);
-
-	noiseMutex.lock();
-	memcpy(&noise[i], (float*)&add_m, 8 * sizeof(float));
-	noiseMutex.unlock();
-	for (; i < x; i++) {
-
-		x1f = population[r1 + (i)*popSize];
-		x2f = population[r2 + (i)*popSize];
-		noise[i] = best[i] + factor * (x1f - x2f);
-	}
-	}
-
-
-
-	//pro vsechny parametry populace:
-	//for (int i = 0; i < x; i++) {
-	//	x1 = population[r1 + (i + 1)*popSize];
-	//x2 = population[r2 + (i + 1)*popSize];
-						
-	//	noise[i] = best[i + 1] + factor * ( x1 - x2);
-	//}
 }
+void DE::gpu_calculation(float* noise, int x, int r1, int r2) {
+	float a[10];
+	float c[10];
+	float b[10];
+	float factor_array[10] = { factor, factor, factor, factor, factor, factor, factor, factor, factor, factor };
 
-void DE::expCross(int noiseIndex) {
+	bestMutex.lock();
+	float best_array[10] = { best[0], best[1], best[2], best[3], best[4], best[5], best[6], best[7], best[8], best[9] };
+	bestMutex.unlock();
+
+	for (int j = 0; j < x; j += 10) {
+
+		a[0] = population[r1 + j * popSize];
+		b[0] = population[r2 + j * popSize];
+
+		a[1] = population[r1 + (j + 1)*popSize];
+		b[1] = population[r2 + (j + 1)*popSize];
+
+		a[2] = population[r1 + (j + 2)*popSize];
+		b[2] = population[r2 + (j + 2)*popSize];
+
+		a[3] = population[r1 + (j + 3)*popSize];
+		b[3] = population[r2 + (j + 3)*popSize];
+
+		a[4] = population[r1 + (j + 4)*popSize];
+		b[4] = population[r2 + (j + 4)*popSize];
+
+		a[5] = population[r1 + (j + 5)*popSize];
+		b[5] = population[r2 + (j + 5)*popSize];
+
+		a[6] = population[r1 + (j + 6)*popSize];
+		b[6] = population[r2 + (j + 6)*popSize];
+
+		a[7] = population[r1 + (j + 7)*popSize];
+		b[7] = population[r2 + (j + 7)*popSize];
+
+		a[8] = population[r1 + (j + 8)*popSize];
+		b[8] = population[r2 + (j + 8)*popSize];
+
+		a[9] = population[r1 + (j + 9)*popSize];
+		b[9] = population[r2 + (j + 9)*popSize];
+
+		array_view<float, 1> a_view(10, a);
+		array_view<float, 1> b_view(10, b);
+		array_view<float, 1> result_view(10, noise);
+		array_view<float, 1> factor_view(10, factor_array);
+		array_view<float, 1> best_view(10, best_array);
+
+
+		parallel_for_each(
+			result_view.extent,
+			[=](index<1> idx) restrict(amp)
+		{
+			result_view[idx] = best_view[idx] + (factor_view[idx] * (a_view[idx] - b_view[idx]));
+
+		}
+		);
+
+
+		result_view.synchronize();
+
+
+	}
+
+	}
+
+
+
+
+	void DE::avx_calculation(float* noise, int x, int r1, int r2) {
+
+		int i = 0;
+		float x1f, x2f;	//hodnoty nahodne vybranych jedincu
+
+		for (; i < x - 7; i += 8) {
+
+			float	x1_1 = population[r1 + i * popSize];
+			float 	x2_1 = population[r2 + i * popSize];
+
+			float	x1_2 = population[r1 + (i + 1)*popSize];
+			float 	x2_2 = population[r2 + (i + 1)*popSize];
+
+			float	x1_3 = population[r1 + (i + 2)*popSize];
+			float 	x2_3 = population[r2 + (i + 2)*popSize];
+
+			float	x1_4 = population[r1 + (i + 3)*popSize];
+			float 	x2_4 = population[r2 + (i + 3)*popSize];
+
+			float	x1_5 = population[r1 + (i + 4)*popSize];
+			float 	x2_5 = population[r2 + (i + 4)*popSize];
+
+			float	x1_6 = population[r1 + (i + 5)*popSize];
+			float 	x2_6 = population[r2 + (i + 5)*popSize];
+
+			float	x1_7 = population[r1 + (i + 6)*popSize];
+			float 	x2_7 = population[r2 + (i + 6)*popSize];
+
+			float	x1_8 = population[r1 + (i + 7)*popSize];
+			float 	x2_8 = population[r2 + (i + 7)*popSize];
+
+
+
+			__m256 x1 = _mm256_set_ps(x1_1, x1_2, x1_3, x1_4, x1_5, x1_6, x1_7, x1_8);
+			__m256 x2 = _mm256_set_ps(x2_1, x2_2, x2_3, x2_4, x2_5, x2_6, x2_7, x2_8);
+			__m256 factor_m = _mm256_set_ps(factor, factor, factor, factor, factor, factor, factor, factor);
+
+			__m256 result = _mm256_sub_ps(x1, x2);
+
+			__m256 mul_m = _mm256_mul_ps(result, factor_m);
+
+			__m256 best_m = _mm256_loadu_ps(&best[i]);
+
+			__m256 add_m = _mm256_add_ps(mul_m, best_m);
+
+
+			memcpy(&noise[i], (float*)&add_m, 8 * sizeof(float));
+
+			for (; i < x; i++) {
+
+				x1f = population[r1 + (i)*popSize];
+				x2f = population[r2 + (i)*popSize];
+				noise[i] = best[i] + factor * (x1f - x2f);
+			}
+		}
+
+	}
+
+
+
+void DE::expCross(int noiseIndex, float* trial, float* noise) {
 
 	//nahodnou hodnotu porovname s CR
 	//dokud plati ze:
@@ -239,14 +317,13 @@ void DE::expCross(int noiseIndex) {
 
 	//nahodna hodnota=noiseIndex
 
-	trialMutex.lock();
 	for (int i = 1; i <= dimension; i++) {
 
 		
 
 		if (i <= noiseIndex) {
 			//osetreni abychom nevylezli mimo meze
-			if (noise[i - 1]<minimum or noise[i - 1]>maximum) { trial[i] = population[activeParent + i * popSize]; }
+			if (noise[i - 1]<minimum || noise[i - 1]>maximum) { trial[i] = population[activeParent + i * popSize]; }
 			else { trial[i] = noise[i - 1]; }
 		}
 		else {
@@ -268,16 +345,16 @@ void DE::expCross(int noiseIndex) {
 			trial[i] = population[activeParent + i * popSize];
 		}
 	}
-	trialMutex.unlock();
 
 	if (bestCV > trial[0]) {
 		stagnation = 0;
 		bestCV = trial[0];
 
-
+		bestMutex.lock();
 		for (int i = 0; i <= dimension; i++) {
 			best[i] = trial[i];
 		}
+		bestMutex.unlock();
 	}
 }
 

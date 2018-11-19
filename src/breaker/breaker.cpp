@@ -12,7 +12,7 @@ bool break_the_cipher(TBlock &encrypted, const TBlock &reference, TPassword &pas
 	TBlock decrypted;
 	TPassword testing_key{ 0 };
 	
-	DE de(0.5, 128, 1.4, 100000, sizeof(password), encrypted, reference);
+	DE de(0.5, 60, 1.4, 100000, sizeof(password), encrypted, reference);
 
 	de.init(0,255,0);
 	de.evolve();
