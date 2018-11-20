@@ -8,17 +8,15 @@
 #include "DE.h"
 
 bool break_the_cipher(TBlock &encrypted, const TBlock &reference, TPassword &password) {
-	SJ_context context;
-	TBlock decrypted;
 	TPassword testing_key{ 0 };
 	
-	DE de(0.5, 60, 1.4, 100000, sizeof(password), encrypted, reference);
+	DE de(0.6f, 128, 1, 10000000, sizeof(password), encrypted, reference);
 
-	de.init(0,255,0);
+	de.init(0,255);
 	de.evolve();
 	
 	float cost;
-	float* result = de.getBest(cost);
+	float* result = de.get_best(cost);
 
 	byte value[sizeof(TPassword)];
 
@@ -31,19 +29,8 @@ bool break_the_cipher(TBlock &encrypted, const TBlock &reference, TPassword &pas
 		memcpy(password, value, sizeof(TPassword));
 		return true;
 	}
-	/** for (testing_key[0] = 0; testing_key[0] < 255; testing_key[0]++) {
-		makeKey(&context, testing_key, sizeof(TPassword));
-		decrypt_block(&context, decrypted, encrypted);
-		if (memcmp(decrypted, reference, sizeof(TBlock)) == 0) {
-			memcpy(password, testing_key, sizeof(TPassword));
-			return true;
-		}
-	}**/
-
 	std::cout << "Score: " << cost << '\n';
-	
 	int tmp;
 	std::cin >> tmp;
-
 	return false;
 }

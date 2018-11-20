@@ -4,78 +4,44 @@
 #include <random>
 #include "../skipjack.h"
 #include <tbb/tbb.h>
-#include <tbb/mutex.h>
 
 class DE
 {
 public:
-	/*konstruktor, destruktor*/
+	
 	DE(float CR, int NP, float F, int generations, int D, TBlock &encrypted, const TBlock &reference);
 	virtual ~DE();
 
-	/*gettery*/
-	int getPopSize() { return popSize; }
-	int getDim() { return dimension; }
 
-	/*settery*/
-	void init(float mini, float maxi, int testFnctn);  //inicializacni funkce.
-	void setPopulation();           //zalozi populaci.
+	void init(float mini, float maxi); 
+	void set_population();          
 
-	/*zakladni funkce diferencialniho evolucniho algoritmu*/
-	void evolve();  //evolucni cyklus
-	void binCross();            //binarni krizeni
-	void expCross(int i, float* trial, float* noise );       //exponencialni krizeni
+	void evolve();  
+	void exp_cross(int i, float* trial, float* noise, int active_parent);
+	void rand1(int i, float* noise,	std::mt19937 generator, int active_parent);
 
-	/*mutacni algoritmy*/
-	void best1(int i, float* noise);
-	
-	void randToBest1(int i);
-	void best2(int i);
-	void rand2(int i);
-
-	float* getBest(float &cost);
-
-	int selectNoiseIndex();     //fce, ktera urci u exp. krizeni, kolik parametru vezmeme ze sumoveho vektoru
-
-	/*cost function*/
-	float costFunction(float * testPopulation, int index, int populationSize);
-
-	void avx_calculation(float* noise, int x, int r1, int r2);
-	void gpu_calculation(float* noise,  int x, int r1, int r2);
-
+	float* get_best(float &cost);
+	int select_noise_index(float rand); 
+	float cost_function(float * testPopulation, size_t index, int populationSize);
 
 protected:
-	float * population;//dynamicke pole populace (matice NP x D, kde jedinec = sloupec)
-	float * newPop;    //nove vznikajici populace
-	//float * noise;     //sumovy vektor vznikly mutaci populace
-	//float * trial;     //zkusebni vektor vznikly krizenim sumoveho vektoru a 4. rodice
-	float * best;      //nejlepsi dosavadni reseni problematiky
+	float * population;
+	float * new_pop;    
 
-	void selectParents(int *r1, int *r2 = 0, int *r3 = 0, int *r4 = 0, int *r5 = 0);//pomocna funkce pro nahodny vyber rodicu
+	void select_parents(std::mt19937 generator, int *r1, int *r2, int *r3, int active_parent);
 
 private:
-	/* ZAKLADNI PARAMETRY ALGORITMU DIFERENCIALNI EVOLUCE */
-	float crossover;   //CR - prah krizeni z intervalu <0;1>. Pri nabyti krajnich hodnot: 0 - kopie ctvrteho rodice; 1 - krizeni 3 rodicu, 4. vynechan
-	int popSize;        //NP - velikost populace. <2D, 100D>. Nemelo by byt mensi nez 4.
-	float factor;      //F - mutacni konstanta. <0, 2>
-	int generations;    //>0 pocet evolucnich cyklu, behem nichz se populace vyviji
-	int dimension;      //D - dimenze problemu - pocet argumentu ucelove funkce.
-	/* KONEC ZAKLADNICH PARAMETRU DIFERENCIALNI EVOLUCE */
-
-	int testFunction;   //vybrana testovaci funkce
-	float minimum, maximum;
-	int activeParent;   //index aktivniho rodice
-	float bestCV;      //nejlepsi hodnota Cost Value
-
-
-
-	int stagnation;     //priznak stagnace
-	int maxStagnation;  //max priznak stagnace
+	float crossover;   
+	int popSize;       
+	float factor;      
+	int generations;   
+	int dimension;      
+	
+	float minimum = 10000;
+	float maximum = -1;;
+	int active_parent = -1;   
+	float bestCV = 100000;      
 
 	byte* encrypted;
 	const byte* reference;
-
-	std::mt19937 generator;   
-
-	tbb::mutex bestMutex;
 };
